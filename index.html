@@ -149,6 +149,8 @@ if(!localStorage.getItem('questboardLayoutVersion') || structure.some(s=>['acade
 }
 let data=JSON.parse(localStorage.getItem('questboardData')||'{}');
 let details=JSON.parse(localStorage.getItem('questboardDetails')||'{}');
+// Migrate the legacy Things of Glory key to a Firestore-safe field name.
+for(const day of Object.keys(details)){if(details[day]&&Object.prototype.hasOwnProperty.call(details[day],'__glory__')){details[day].gloryText=details[day].gloryText??details[day].__glory__;delete details[day].__glory__;}}
 let current=new Date();current.setHours(0,0,0,0);
 function key(d=current){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function tid(sec,sub,task){return `${sec}::${sub}::${task}`}
@@ -166,7 +168,7 @@ function render(){
  document.getElementById('percent').textContent=`${coreTasks.length?Math.round(done/coreTasks.length*100):0}% of your core quests complete`;
  document.getElementById('xp').textContent=discoveryDone;
  document.getElementById('achievement').textContent=done===0?'Your next level starts with your first quest.':`${done} core quest${done===1?'':'s'} completed today. Keep building your record.`;
- const glory=document.getElementById('gloryNotes');if(glory)glory.value=(details[k]||{}).__glory__||'';
+ const glory=document.getElementById('gloryNotes');if(glory)glory.value=(details[k]||{}).gloryText||(details[k]||{}).__glory__||'';
  const root=document.getElementById('sections');root.innerHTML='';
  structure.forEach(s=>{
   const count=s.subsections.reduce((n,sub)=>n+sub.tasks.length,0),finished=s.subsections.reduce((n,sub)=>n+sub.tasks.filter(t=>st[tid(s.id,sub.id,t)]).length,0);
@@ -205,7 +207,7 @@ function pickDate(){const v=document.getElementById('datePicker').value;if(v){op
 function moveDay(n){current.setDate(current.getDate()+n);render()}
 function goToday(){current=new Date();current.setHours(0,0,0,0);render()}
 function resetToday(){if(confirm('Reset all tasks and notes for this day?')){delete data[key()];delete details[key()];save();render()}}
-const gloryBox=document.getElementById('gloryNotes');if(gloryBox)gloryBox.addEventListener('input',()=>{details[key()]??={};details[key()].__glory__=gloryBox.value;save();document.getElementById('glorySaveStatus').textContent='Saved automatically for this date.'});
+const gloryBox=document.getElementById('gloryNotes');if(gloryBox)gloryBox.addEventListener('input',()=>{details[key()]??={};details[key()].gloryText=gloryBox.value;delete details[key()].__glory__;save();document.getElementById('glorySaveStatus').textContent='Saved automatically for this date.'});
 render();
 </script>
 <!-- Cloud Sync -->
