@@ -65,7 +65,7 @@ th:first-child,td:first-child{text-align:left;min-width:165px}
 .modalBox h2{margin:0 0 5px}.modalBox p{font-size:12px;color:var(--muted)}
 .modalBox input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit}
 .modalActions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-.achievement{margin-top:10px;padding:10px 12px;background:var(--goldSoft);border-radius:10px;font-size:12px}
+.small{padding:5px 8px;font-size:12px}.addSectionCard{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:120px}.achievement{margin-top:10px;padding:10px 12px;background:var(--goldSoft);border-radius:10px;font-size:12px}
 @media(max-width:760px){.top,.grid{grid-template-columns:1fr}.app{padding:18px 12px 35px}header{align-items:flex-start}}
 
 .glory-card{margin-top:16px}
@@ -121,6 +121,7 @@ th:first-child,td:first-child{text-align:left;min-width:165px}
   <div class="historyGrid"><table id="table"></table></div>
   <div class="sub" style="margin-top:10px">Click any day to open its complete dashboard. Chronicle marks and 🔥 streaks use core quests only.</div>
 </div>
+<div class="card addSectionCard" style="margin-top:16px"><button onclick="addSection()">＋ Add section</button><div class="sub" style="margin-top:8px">Create your own categories whenever you need them.</div></div>
 </div>
 
 <div class="modal" id="modal" onclick="if(event.target===this)closeCalendar()">
@@ -133,113 +134,80 @@ th:first-child,td:first-child{text-align:left;min-width:165px}
 </div>
 
 <script>
-const config=[
- {name:"🎓 Academic",tasks:["2nd year","Physiology"],core:true},
- {name:"🔎 Curiosities",tasks:["Origin of Species","Meth","Philosophy","Video Games","Movies","AI and Coding","Logic and Observation Improvement"],core:true,curiosity:true},
- {name:"💪 Health",tasks:["Brushing","Medicine","13K steps","800 Calories","Gymming / Exercise","Good Sleep"],core:true}
+const defaultStructure=[
+ {id:'academic',name:'🎓 Academic',subsections:[{id:'academicTasks',name:'',tasks:['2nd year']}]},
+ {id:'curiosities',name:'🔎 Curiosities',subsections:[{id:'curiosityTasks',name:'',tasks:['Origin of Species','Meth','Philosophy','Video Games','Movies','AI and Coding','Logic and Observation Improvement']}]},
+ {id:'health',name:'💪 Health',subsections:[{id:'healthTasks',name:'',tasks:['Brushing','Medicine','13K steps','800 Calories','Gymming / Exercise','Good Sleep']}]}
 ];
-let data=JSON.parse(localStorage.getItem("questboardData")||"{}");
-let details=JSON.parse(localStorage.getItem("questboardDetails")||"{}");
+let structure=JSON.parse(localStorage.getItem('questboardStructure')||'null')||defaultStructure;
+// Migrate the earlier nested defaults to the corrected single-list layout, preserving any custom sections.
+if(!localStorage.getItem('questboardLayoutVersion') || structure.some(s=>['academic','curiosities','health'].includes(s.id))){
+ const custom=structure.filter(s=>!['academic','curiosities','health'].includes(s.id));
+ structure=[...JSON.parse(JSON.stringify(defaultStructure)),...custom];
+ localStorage.setItem('questboardLayoutVersion','2');
+ localStorage.setItem('questboardStructure',JSON.stringify(structure));
+}
+let data=JSON.parse(localStorage.getItem('questboardData')||'{}');
+let details=JSON.parse(localStorage.getItem('questboardDetails')||'{}');
 let current=new Date();current.setHours(0,0,0,0);
-
-function key(d=current){return d.toISOString().slice(0,10)}
-function tid(section,task){return section+"::"+task}
-function save(){localStorage.setItem("questboardData",JSON.stringify(data));localStorage.setItem("questboardDetails",JSON.stringify(details))}
+function key(d=current){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function tid(sec,sub,task){return `${sec}::${sub}::${task}`}
+function save(){localStorage.setItem('questboardData',JSON.stringify(data));localStorage.setItem('questboardDetails',JSON.stringify(details));localStorage.setItem('questboardStructure',JSON.stringify(structure));if(window.cloudSave)window.cloudSave()}
 function state(){return data[key()]||{}}
-
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function allTasks(){return structure.flatMap(s=>s.subsections.flatMap(sub=>sub.tasks.map(t=>({s,sub,t,id:tid(s.id,sub.id,t)}))))}
 function render(){
  const k=key(),st=state();
- const glory=document.getElementById("gloryNotes");
- if(glory){glory.value=(details[k]||{}).__glory__||"";}
-
- document.getElementById("date").textContent=current.toLocaleDateString(undefined,{month:"long",day:"numeric",year:"numeric"});
- document.getElementById("weekday").textContent=current.toLocaleDateString(undefined,{weekday:"long"});
-
- let coreIds=[];
- config.forEach(s=>s.tasks.forEach((t,i)=>{
-   if(!s.curiosity || t==="Origin of Species") coreIds.push(tid(s.name,t));
- }));
- const done=coreIds.filter(x=>st[x]).length;
- document.getElementById("progress").textContent=`${done} / ${coreIds.length}`;
- document.getElementById("fill").style.width=(done/coreIds.length*100)+"%";
- document.getElementById("percent").textContent=Math.round(done/coreIds.length*100)+"% of your core quests complete";
-
- const optionalIds=config[1].tasks.filter(t=>t!=="Origin of Species").map(t=>tid(config[1].name,t));
- const xp=optionalIds.filter(x=>st[x]).length;
- document.getElementById("xp").textContent=xp;
- document.getElementById("achievement").textContent=xp===0?"Your curiosity vault is waiting.":xp<3?`${xp} discovery point${xp>1?"s":""} earned — keep exploring.`:`Explorer level up: ${xp} discoveries unlocked.`;
-
- const root=document.getElementById("sections");root.innerHTML="";
- config.forEach(s=>{
-   const doneSection=s.curiosity
-      ? (s.tasks.filter(t=>st[tid(s.name,t)]).length)
-      : s.tasks.filter(t=>st[tid(s.name,t)]).length;
-   const card=document.createElement("div");card.className="card section";
-   card.innerHTML=`<div class="sectionHead"><div><div class="sectionTitle">${esc(s.name)}</div><div class="sub">${s.curiosity?"Origin of Species is your daily anchor":"Core quests — every one counts toward your meter"}</div></div><span class="badge">${doneSection}/${s.tasks.length}</span></div>`;
-
-   s.tasks.forEach(t=>{
-     const id=tid(s.name,t), isOpt=s.curiosity&&t!=="Origin of Species";
-     const row=document.createElement("div");row.className="task";
-     const safeId="x"+btoa(unescape(encodeURIComponent(id))).replace(/[^a-zA-Z0-9]/g,"");
-     const hasDetail=(details[key()]||{})[id]||"";
-     row.innerHTML=`<div class="taskMain"><input id="${safeId}" type="checkbox" ${st[id]?"checked":""}><label for="${safeId}">${esc(t)}</label>${isOpt?'<span class="optional">BONUS</span>':""}<button class="detailBtn" title="Add details">✎</button></div>
-       <div class="detail"><textarea placeholder="Add notes, what you learned, what you did, observations, etc.">${esc(hasDetail)}</textarea><div class="detailHint">Saved automatically for this task on this date.</div></div>`;
-     row.querySelector("input").onchange=e=>{data[k]??={};data[k][id]=e.target.checked;save();render()};
-     row.querySelector(".detailBtn").onclick=()=>row.querySelector(".detail").classList.toggle("show");
-     row.querySelector("textarea").oninput=e=>{details[k]??={};details[k][id]=e.target.value;save()};
-     card.appendChild(row);
+ document.getElementById('date').textContent=current.toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'});
+ document.getElementById('weekday').textContent=current.toLocaleDateString(undefined,{weekday:'long'});
+ const tasks=allTasks(),coreTasks=tasks.filter(x=>x.s.id!=='curiosities'||x.t==='Origin of Species'),done=coreTasks.filter(x=>st[x.id]).length,discoveryDone=tasks.filter(x=>x.s.id==='curiosities'&&x.t!=='Origin of Species'&&st[x.id]).length;
+ document.getElementById('progress').textContent=`${done} / ${coreTasks.length}`;
+ document.getElementById('fill').style.width=(coreTasks.length?done/coreTasks.length*100:0)+'%';
+ document.getElementById('percent').textContent=`${coreTasks.length?Math.round(done/coreTasks.length*100):0}% of your core quests complete`;
+ document.getElementById('xp').textContent=discoveryDone;
+ document.getElementById('achievement').textContent=done===0?'Your next level starts with your first quest.':`${done} core quest${done===1?'':'s'} completed today. Keep building your record.`;
+ const glory=document.getElementById('gloryNotes');if(glory)glory.value=(details[k]||{}).__glory__||'';
+ const root=document.getElementById('sections');root.innerHTML='';
+ structure.forEach(s=>{
+  const count=s.subsections.reduce((n,sub)=>n+sub.tasks.length,0),finished=s.subsections.reduce((n,sub)=>n+sub.tasks.filter(t=>st[tid(s.id,sub.id,t)]).length,0);
+  const card=document.createElement('div');card.className='card section';
+  card.innerHTML=`<div class="sectionHead"><div><div class="sectionTitle">${esc(s.name)}</div><div class="sub">${finished}/${count} ${s.id==='curiosities'?'discoveries explored':'core tasks complete'}</div></div><div style="display:flex;gap:5px;align-items:center"><span class="badge">${count}</span><button class="secondary small" onclick="addTaskToSection('${s.id}')">＋ Task</button><button class="secondary small" onclick="renameSection('${s.id}')" title="Rename">✎</button><button class="secondary small" onclick="deleteSection('${s.id}')" title="Delete">×</button></div></div>`;
+  s.subsections.forEach(sub=>{
+   if(!sub.tasks.length){const empty=document.createElement('div');empty.className='sub';empty.textContent='No tasks yet — use + Task in the section heading.';empty.style.padding='8px 0';card.appendChild(empty)}
+   sub.tasks.forEach(t=>{
+    const id=tid(s.id,sub.id,t),safeId='cb'+Math.random().toString(36).slice(2),note=(details[k]||{})[id]||'';
+    const row=document.createElement('div');row.className='task';row.innerHTML=`<div class="taskMain"><input id="${safeId}" type="checkbox" ${st[id]?'checked':''}><label for="${safeId}">${esc(t)}</label><button class="detailBtn" title="Notes">✎</button><button class="detailBtn" title="Rename task">⋯</button></div><div class="detail"><textarea placeholder="Notes for this task today…">${esc(note)}</textarea><div class="detailHint">Saved automatically for this date.</div></div>`;
+    row.querySelector('input').onchange=e=>{data[k]??={};data[k][id]=e.target.checked;save();render()};
+    row.querySelectorAll('.detailBtn')[0].onclick=()=>row.querySelector('.detail').classList.toggle('show');
+    row.querySelectorAll('.detailBtn')[1].onclick=()=>{const n=prompt('Rename this task',t);if(!n||!n.trim()||n.trim()===t)return;sub.tasks=sub.tasks.map(x=>x===t?n.trim():x);save();render()};
+    row.querySelector('textarea').oninput=e=>{details[k]??={};details[k][id]=e.target.value;save()};card.appendChild(row);
    });
-   const streak=calcStreak(s);
-   card.insertAdjacentHTML("beforeend",`<div class="sectionFooter"><span>${s.name==="🎓 Academic"?"📚 Study Run":s.name==="💪 Health"?"❤️ Vitality Run":"🧭 Explorer Run"}</span><b>🔥 ${streak} day${streak===1?"":"s"}</b></div>`);
-   root.appendChild(card);
+  });
+  root.appendChild(card);
  });
  renderHistory();
 }
-
-function sectionComplete(k,s){
- const st=data[k]||{};
- if(s.curiosity)return !!st[tid(s.name,"Origin of Species")];
- return s.tasks.every(t=>!!st[tid(s.name,t)]);
-}
-function calcStreak(s){
- let d=new Date(current),n=0;
- // Streaks are anchored to the day currently being viewed.
- while(true){
-   const k=key(d);
-   if(!sectionComplete(k,s))break;
-   n++;d.setDate(d.getDate()-1);
- }
- return n;
-}
-function renderHistory(){
- const y=current.getFullYear(),m=current.getMonth(),days=new Date(y,m+1,0).getDate();
- document.getElementById("month").textContent=current.toLocaleDateString(undefined,{month:"long",year:"numeric"});
- let h="<thead><tr><th>Section</th>";
- for(let d=1;d<=days;d++)h+=`<th>${d}</th>`;h+="</tr></thead><tbody>";
- config.forEach(s=>{
-   h+=`<tr><td>${esc(s.name)}</td>`;
-   for(let d=1;d<=days;d++){
-     const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-     const st=data[k]||{}, ok=sectionComplete(k,s);
-     let cls=ok?"done":"";
-     if(!ok && s.name!=="🔎 Curiosities" && s.tasks.some(t=>st[tid(s.name,t)]))cls="partial";
-     h+=`<td class="day ${cls}" onclick="openHistorical('${k}')">${ok?"✓":cls==="partial"?"•":"·"}</td>`;
-   }
-   h+="</tr>";
- });
- h+="</tbody>";document.getElementById("table").innerHTML=h;
-}
-function openHistorical(k){const p=k.split("-");current=new Date(+p[0],+p[1]-1,+p[2]);current.setHours(0,0,0,0);render();window.scrollTo({top:0,behavior:"smooth"})}
-function openCalendar(){document.getElementById("datePicker").value=key();document.getElementById("modal").classList.add("open")}
-function closeCalendar(){document.getElementById("modal").classList.remove("open")}
-function pickDate(){const v=document.getElementById("datePicker").value;if(!v)return;openHistorical(v);closeCalendar()}
+function addSection(){const name=prompt('Name your new section');if(!name||!name.trim())return;structure.push({id:'s'+Date.now(),name:name.trim(),subsections:[]});save();render()}
+function renameSection(id){const s=structure.find(x=>x.id===id),n=prompt('Rename section',s.name);if(n&&n.trim()){s.name=n.trim();save();render()}}
+function deleteSection(id){const s=structure.find(x=>x.id===id);if(confirm(`Delete section “${s.name}” and its structure? Past records are retained but won't appear in this layout.`)){structure=structure.filter(x=>x.id!==id);save();render()}}
+function addSubsection(id){const s=structure.find(x=>x.id===id),name=prompt('Name this subsection');if(!name||!name.trim())return;s.subsections.push({id:'sub'+Date.now(),name:name.trim(),tasks:[]});save();render()}
+function renameSubsection(sid,suid){const sub=structure.find(x=>x.id===sid).subsections.find(x=>x.id===suid),n=prompt('Rename subsection',sub.name);if(n&&n.trim()){sub.name=n.trim();save();render()}}
+function deleteSubsection(sid,suid){const s=structure.find(x=>x.id===sid),sub=s.subsections.find(x=>x.id===suid);if(confirm(`Delete subsection “${sub.name}”? Past records are retained but won't appear in this layout.`)){s.subsections=s.subsections.filter(x=>x.id!==suid);save();render()}}
+function addTask(sid,suid){const sub=structure.find(x=>x.id===sid).subsections.find(x=>x.id===suid),name=prompt('Task name');if(!name||!name.trim())return;sub.tasks.push(name.trim());save();render()}
+function addTaskToSection(sid){const s=structure.find(x=>x.id===sid);if(!s.subsections.length)s.subsections.push({id:'tasks'+Date.now(),name:'',tasks:[]});addTask(sid,s.subsections[0].id)}
+function sectionComplete(k,s){const ts=s.subsections.flatMap(sub=>sub.tasks.filter(t=>s.id!=='curiosities'||t==='Origin of Species').map(t=>tid(s.id,sub.id,t)));return ts.length>0&&ts.every(t=>!!(data[k]||{})[t])}
+function calcStreak(s){let d=new Date(current),n=0;while(sectionComplete(key(d),s)){n++;d.setDate(d.getDate()-1)}return n}
+function renderHistory(){const y=current.getFullYear(),m=current.getMonth(),days=new Date(y,m+1,0).getDate();document.getElementById('month').textContent=current.toLocaleDateString(undefined,{month:'long',year:'numeric'});let h='<thead><tr><th>Section</th>';for(let d=1;d<=days;d++)h+=`<th>${d}</th>`;h+='</tr></thead><tbody>';structure.forEach(s=>{h+=`<tr><td>${esc(s.name)}</td>`;for(let d=1;d<=days;d++){const k=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,st=data[k]||{},ts=s.subsections.flatMap(sub=>sub.tasks.filter(t=>s.id!=='curiosities'||t==='Origin of Species').map(t=>tid(s.id,sub.id,t))),done=ts.filter(t=>st[t]).length,ok=ts.length>0&&done===ts.length,cls=ok?'done':done?'partial':'';h+=`<td class="day ${cls}" onclick="openHistorical('${k}')">${ok?'✓':done?'•':'·'}</td>`}h+='</tr>'});h+='</tbody>';document.getElementById('table').innerHTML=h}
+function openHistorical(k){const p=k.split('-');current=new Date(+p[0],+p[1]-1,+p[2]);current.setHours(0,0,0,0);render();window.scrollTo({top:0,behavior:'smooth'})}
+function openCalendar(){document.getElementById('datePicker').value=key();document.getElementById('modal').classList.add('open')}
+function closeCalendar(){document.getElementById('modal').classList.remove('open')}
+function pickDate(){const v=document.getElementById('datePicker').value;if(v){openHistorical(v);closeCalendar()}}
 function moveDay(n){current.setDate(current.getDate()+n);render()}
 function goToday(){current=new Date();current.setHours(0,0,0,0);render()}
-function resetToday(){if(confirm("Reset all tasks and notes for this day?")){delete data[key()];delete details[key()];save();render()}}
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function resetToday(){if(confirm('Reset all tasks and notes for this day?')){delete data[key()];delete details[key()];save();render()}}
+const gloryBox=document.getElementById('gloryNotes');if(gloryBox)gloryBox.addEventListener('input',()=>{details[key()]??={};details[key()].__glory__=gloryBox.value;save();document.getElementById('glorySaveStatus').textContent='Saved automatically for this date.'});
 render();
 </script>
-
 <!-- Cloud Sync -->
 <div class="modal" id="syncModal" onclick="if(event.target===this)closeSync()">
  <div class="modalBox">
@@ -337,7 +305,7 @@ async function cloudLoad(){
   data=cloud.dailyData||{};
   details=cloud.details||{};
  }else{
-  await setDoc(doc(db,"users",fbUid),{dailyData:data,details:details,updatedAt:Date.now()});
+  await setDoc(doc(db,"users",fbUid),{dailyData:data,details:details,structure:structure,updatedAt:Date.now()});
  }
  localStorage.setItem("myDashboardData",JSON.stringify(data));
  localStorage.setItem("questboardDetails",JSON.stringify(details));
@@ -360,12 +328,11 @@ async function cloudSave(){
  if(!db||!fbUid||busy)return;
  busy=true;
  try{
-  await setDoc(doc(db,"users",fbUid),{dailyData:data,details:details,updatedAt:Date.now()});
+  await setDoc(doc(db,"users",fbUid),{dailyData:data,details:details,structure:structure,updatedAt:Date.now()});
  }catch(e){console.error(e)}
  finally{busy=false}
 }
-const localSave=window.save;
-window.save=function(){localSave();cloudSave()};
+window.cloudSave=cloudSave;
 
 init();
 </script>
