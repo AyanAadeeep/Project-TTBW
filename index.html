@@ -230,7 +230,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebas
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
-let fbApp=null, fbAuth=null, db=null, fbUid=null, busy=false;
+let fbApp=null, fbAuth=null, db=null, fbUid=null, cloudSaving=false, cloudSavePending=false;
 
 function status(msg){const s=document.getElementById("syncStatus");if(s)s.textContent=msg}
 function getCfg(){
@@ -307,30 +307,32 @@ async function cloudLoad(){
  }else{
   await setDoc(doc(db,"users",fbUid),{dailyData:data,details:details,structure:structure,updatedAt:Date.now()});
  }
- localStorage.setItem("myDashboardData",JSON.stringify(data));
+ localStorage.setItem("questboardData",JSON.stringify(data));
  localStorage.setItem("questboardDetails",JSON.stringify(details));
- 
-const gloryBox=document.getElementById("gloryNotes");
-if(gloryBox){
- gloryBox.addEventListener("input",()=>{
-   const k=key();
-   details[k]??={};
-   details[k].__glory__=gloryBox.value;
-   save();
-   const status=document.getElementById("glorySaveStatus");
-   if(status)status.textContent="Saved automatically for this date.";
- });
-}
-
-render();
+ localStorage.setItem("questboardStructure",JSON.stringify(structure));
+ render();
 }
 async function cloudSave(){
- if(!db||!fbUid||busy)return;
- busy=true;
+ // Queue another write if edits happen while a Firestore write is in progress.
+ // This prevents later keystrokes in long notes from being silently skipped.
+ if(!db||!fbUid)return;
+ cloudSavePending=true;
+ if(cloudSaving)return;
+ cloudSaving=true;
  try{
-  await setDoc(doc(db,"users",fbUid),{dailyData:data,details:details,structure:structure,updatedAt:Date.now()});
- }catch(e){console.error(e)}
- finally{busy=false}
+  while(cloudSavePending){
+   cloudSavePending=false;
+   const payload=JSON.parse(JSON.stringify({dailyData:data,details:details,structure:structure,updatedAt:Date.now()}));
+   await setDoc(doc(db,"users",fbUid),payload);
+  }
+ }catch(e){
+  console.error("Cloud save failed:",e);
+  status("Cloud save failed: "+(e.message||"Please check your connection."));
+ }finally{
+  cloudSaving=false;
+  // If an edit arrived as the previous write was finishing, make sure it gets sent.
+  if(cloudSavePending)cloudSave();
+ }
 }
 window.cloudSave=cloudSave;
 
